@@ -9,6 +9,7 @@
   MAX_PER_RUN          1回の実行で投稿する最大件数（既定: 2）
   MAX_AGE_HOURS        これより古い記事は投稿しない（既定: 36）
   EXCLUDE_CATEGORIES   投稿しないカテゴリ（カンマ区切り。例: 事件・事故,政治・社会）
+  TOPIC_TAG            投稿に付けるトピックタグ（既定: マレーシアニュース。空でタグなし）
   DRY_RUN=1            投稿せず、投稿予定の文面だけ表示する
   RSS_URL              RSSのURL（テスト用に file:// も可）
 """
@@ -35,6 +36,7 @@ DRY_RUN = os.environ.get("DRY_RUN") == "1"
 API = "https://graph.threads.net/v1.0"
 TEXT_LIMIT = 500  # Threadsの1投稿の上限文字数
 KEEP_STATE = 500  # 投稿済みIDを保持する件数
+TOPIC_TAG = os.environ.get("TOPIC_TAG", "マレーシアニュース").strip()  # 空文字でタグなし
 
 
 def fetch_items():
@@ -95,10 +97,16 @@ def api_post(path, params):
 
 def post_to_threads(item):
     user_id = os.environ["THREADS_USER_ID"]
-    container = api_post(
-        f"{user_id}/threads",
-        {"media_type": "TEXT", "text": build_text(item), "link_attachment": item["link"]},
-    )
+    params = {"media_type": "TEXT", "text": build_text(item), "link_attachment": item["link"]}
+    if TOPIC_TAG:
+        try:
+            container = api_post(f"{user_id}/threads", {**params, "topic_tag": TOPIC_TAG})
+        except RuntimeError as e:
+            # リンクカードとの併用などでタグが通らない場合は、タグなしで投稿する
+            print(f"トピックタグ付きの作成に失敗。タグなしで再試行します: {e}", file=sys.stderr)
+            container = api_post(f"{user_id}/threads", params)
+    else:
+        container = api_post(f"{user_id}/threads", params)
     time.sleep(5)
     published = api_post(f"{user_id}/threads_publish", {"creation_id": container["id"]})
     return published["id"]
