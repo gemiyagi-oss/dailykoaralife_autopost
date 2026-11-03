@@ -1,0 +1,44 @@
+name: Post news to Threads
+
+on:
+  schedule:
+    - cron: "0 */2 * * *" # 2時間おき（UTCの偶数時。マレーシア時間でも偶数時）
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "投稿せず文面だけ確認する"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: threads-news
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Post new articles
+        run: python post_news.py
+        env:
+          THREADS_USER_ID: ${{ secrets.THREADS_USER_ID }}
+          THREADS_ACCESS_TOKEN: ${{ secrets.THREADS_ACCESS_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '0' }}
+
+      - name: Save posted state
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add posted.json
+          git diff --cached --quiet || (git commit -m "Update posted state" && git push)
